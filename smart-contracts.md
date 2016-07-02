@@ -632,6 +632,43 @@ If the contract is attacked and paused - you may want to provide a facility to w
 - How should money be returned, if there is not enough to return all users' funds
 - [TODO]
 
+## Security-related Documentation and Procedures
+
+When launching a contract that will have substantial funds or is required to be mission critical, it is important to include proper documentation. Some documentation related to security includes:
+
+**Status**
+
+- Where current code is deployed
+- Current status of deployed code (including outstanding issues, performance stats, etc.)
+
+**Known Issues**
+
+- Key risks with contract
+  - e.g., You can lose all your money, hacker can vote for certain outcomes
+- All known bugs/limitations
+- Potential attacks and mitigants
+- Potential conflicts of interest (e.g., will be using yourself, like Slock.it did with the DAO)
+
+**History**
+
+- Testing (including usage stats, discovered bugs, length of testing)
+- People who have reviewed code (and their key feedback)
+
+**Procedures**
+
+- Notification process if bug is discovered
+- Wind down process if something goes wrong (e.g., funders will get percentage of your balance before attack, from remaining funds)
+- Hacker bounty* provided for discovered bugs, responsible disclosure policy, where to report, etc
+- What recourse there will be in case of failure
+
+**Contact Information**
+
+- Who to contact with issues?
+- Names of programmers and/or other important parties
+- Chat room where questions can be asked
+
+This information ideally exists on a wiki editable by the community, served over HTTPS/TLS.
+
 ## Future improvements
 
 - **Editor Security Warnings**: Editors will soon alert for common security errors, not just compilation errors. Browser Solidity is getting these features soon.
