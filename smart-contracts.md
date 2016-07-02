@@ -25,6 +25,7 @@ As a result, beyond protecting yourself against currently known hacks, it's crit
   - manage the amount of money at risk (rate limiting, maximum usage)
   - fix and iterate on the code when errors are discovered
   - provide superuser privileges to a party or many parties for contract administration
+  - have an orderly wind down process if the unthinkable happens
 
 - **Conduct a thoughtful and carefully staged rollout**
   - Test contracts thoroughly, adding in all newly discovered failure cases
@@ -82,7 +83,7 @@ Source:
 
 #### Favor `.send()` over `.call()`, `.callcode()`, `.delegatecall()`
 
-`send` is usually safer, as it only has access to gas stipend of 2,300 gas, which is insufficient for the send recipient to trigger state changes (2,300 gas was chosen to allow the recipient to register a log, but not much else). Raw calls do not have a cap in how much gas can be used. If you do use a raw external call, the return value should be checked to see if it failed.
+`send` is usually safer, as it only has access to gas stipend of 2,300 gas, which is insufficient for the send recipient to trigger state changes (2,300 gas was chosen to allow the recipient to fire an event, but not much else). Raw calls do not have a cap in how much gas can be used, unless explicitly specified. If you do use a raw external call, the return value should be checked to see if it failed.
 
 Source:
 
@@ -212,7 +213,9 @@ uint x = (5 * multiplier) / 2;
 
 #### Name functions and events differently
 
-Favor capitalization and a *Log* prefix in front of events, to prevent the risk of confusion between functions and events. For functions, always start with a lowercase letter.
+Favor capitalization and a *Log* prefix in front of events, to prevent the risk of confusion between functions and events (this was a mistake made in [The DAO](https://github.com/slockit/DAO/) ). For functions, always start with a lowercase letter.
+
+Source: [Deconstructing the DAO Attack: A Brief Code Tour](http://vessenes.com/deconstructing-thedao-attack-a-brief-code-tour/) (Peter Vessenes)
 
 ```
 // bad
@@ -277,6 +280,7 @@ Given the call stack limit of 1024, a malicious party can build up a chain of ca
 
 
 Example:
+
 ```
 function bid() {
   if (msg.value > highestBid) {
@@ -287,6 +291,7 @@ function bid() {
     previousBidder.send(); // this send will fail, meaning the money is retained within the contract even though the bidder changed
 }
 ```
+
 All raw external calls should be examined and handled carefully for errors.  In most cases, the return values should be checked and handled carefully.  We recommend explicit comments in the code when such a return value is deliberately not checked.
 
 #### Iterator Deadlocking
@@ -330,7 +335,6 @@ function payOut(address _recipient, uint _amount) returns (bool) {
       return false;
   }
 }
-
 ```
 
 To protect against recursive reentry, the function needs to set the state such that if the function is called again in the same transaction, it wouldn’t continue to execute.
@@ -350,6 +354,7 @@ To protect against this, ensure that any state changes happen BEFORE the attacke
 If there are more than 2 functions that share state, an attacker can cause substantial damage. Functions that do not share any state, are safe from this attack (even if state changes happen after the external call). It is not generally a safe pattern, so it is still recommended to do state changes before doing any external calls even if no functions share states in your contract.
 
 A non-example? ((insert here))
+
 ```
 contract ReentrantSafe {
   uint fState;
@@ -368,6 +373,7 @@ In general, for both reentry attacks, the easiest fix is to make sure that you o
 If one has an expectation of what type of computations will be done in an external call, to limit the gas appropriately (and not forwarding all the gas by default). This however limits the potential for any emergent useful use cases, so use wisely.
 
 To summarise the protection against external call attacks:
+
 - Always make sure to check the result of the call, even when using send(), or even Contract calls. Under no assumption should it be expected that everything went exactly as planned.
 - Move external calls to the end of functions.
 If this can’t be done, make extremely sure that state manipulation across functions won’t be possible.
@@ -418,42 +424,213 @@ If your contract is an oracle, it may want protection from leeches that will use
 
 Part of the solution is to carefully review the visibilities of all function and state variable.
 
-
 ## Software Engineering Techniques
 
-Designing your contract for failure scenarios is a key aspect of defensive programming, which aims to reduce the risk from newly discovered bugs:
+Designing your contract for unknown, often unknowable, failure scenarios is a key aspect of defensive programming, which aims to reduce the risk from newly discovered bugs. We list potential techniques you can use to mitigate this unknown failure scenarios.
 
-#### Deployment
+#### Testing
 
-Before moving the mainnet, it is critical to deploy the code to the testnet, where it can be tested. In order to incentivize attackers, one can offer bug bounties for finding exploits in the testnet code.
+This section is under construction.
 
-When deploying on the main chain, one might want to the use the optimizer. This reduces the bytecode required and can sometimes be useful to fit large contracts into
 
-#### On-Chain
+##### Rollout
 
-There should be the assumption that even if you used all the tools at hand, bugs could still slip in. Thus, one should be prepared for this, by using various on-chain mechanisms to either revert or replace faulty code.
+Contracts should have a substantial and prolonged testing period - before substantial money is put at risk.
 
-#### Permissioned Guard
+At minimum, you should:
 
-In order to be able to change code, once it is deployed, someone needs to have permission to do so. The simplest version is that you have a multi-signature control of code. It is a tradeoff since this opens up the system to potential manipulation and one has to trust the multi-signature stakeholders to not be malicious. One can extend this to as broad a set of stakeholders as one wants. For example, a set of token holders can all vote to upgrade a contract if some quorum is met.
+- Have a full test suite with 100% test coverage
+- Deploy on your own testnet
+- Deploy on the public testnet with substantial testing and bug bounties
+  - exhaustive testing should allow various players to interact with the contract at volume
+- Deploy on the mainnet in beta with limits to the amount at risk
 
-A simple switch can also employed that allows the contracts to lock themselves, instead of having to worry about a fix. Ie, lock first, then upgrade.
+##### Automatic Deprecation
 
-#### Circuit Breakers
+During testing, you can force an automatic deprecation by preventing any actions after a certain time period. For example, a beta contract may work for several weeks and then automatically shut down all actions, except for the final withdrawal.
 
-Upgrading functionality is useful, especially in terms of fixing potential bugs. However, attacks can occur before the participants have any time of fixing it.
+```
+modifier isActive() {
+  if (now > SOME_BLOCK_NUMBER) {
+    throw;
+  }
+  _
+}
 
-Circuit breakers are automated stop-gaps that stops any contract code automatically from being executed if certain conditions are met.
+function deposit()
+isActive() {
+  // some code
+}
 
-Under certain circumstances it can force the whole contract to be locked down if unexpected behaviour starts to occur. If not resolved, it will remain in stasis. Circuit breakers are not just useful for things like protecting ether. Any rate limit can be picked up. A generic can be done by sending requests through a proxy and logging function signatures and ether transfer and then locking requests if anything out of the ordinary is happening.
+function withdraw() {
+  // some code
+}
 
-#### Speed Bumps/Rate Limiting
+```
 
-One of the best lessons from the DAO is that slowing down processes arbitrarily may allow for time to respond to them when they behave unexpectedly. There are obvious user experience tradeoffs here, and speed bumps may be best implemented inside of circuit breaker logic so that they are only triggered in exceptional circumstances.
+
+##### Use fake Ether or restrict amount of Ether per user/contract
+
+In the early stages, you can use tokens to represent large amounts of Ether, or restrict the amount of Ether for any user (or for the entire contract) - reducing the risk.
+
+#### Permissioned Guard (changing code once deployed)
+
+Code will need to be changed if errors are ever discovered - and there are various techniques to do this. The simplest is to have a registry contract that holds the address of the latest contract. An easier approach for contract users is to have a contract that forwards calls and data onto the latest version of the contract.
+
+Whatever the technique, it's important to have modularization and good separation between components (data, logic) - so that code changes do not break functionality or require substantial costs to port. Additionally, it's critical to have a **secure** way for parties to upgrade the code - and this may be a single trusted party, a group of members, or require a vote/quorom from the full set of stakeholders.
+
+**Example 1: Use a registry contract to store latest version of a contract**
+
+```
+contract SomeRegister {
+  address backendContract;
+  address[] previousBackends;
+
+  function changeBackend(address newBackend) {
+      if(newBackend != backendContract) {
+	previousBackends.push(backendContract);
+	backendContract = newBackend;
+	return true;
+      }
+
+      return false;
+  }
+}
+
+```
+
+
+**Example 2: Use a `DELEGATECALL` to forward data and calls**
+
+```
+contract Relay {
+    address public currentVersion;
+    address public owner;
+
+    modifier onlyOwner() {
+      if (msg.sender != owner) {
+	throw;
+      }
+      _
+    }
+
+    function Relay(address initAddr) {
+        currentVersion = initAddr;
+        owner = msg.sender; // this owner may be another contract with multisig, not a single contract owner
+    }
+
+    function changeContract(newVersion)
+    onlyOwner()
+    {
+	currentVersion = newVersion;
+    }
+
+    function() {
+        if(!currentVersion.delegatecall(msg.data)) throw;
+    }
+}
+```
+Source: [Stack Overflow](http://ethereum.stackexchange.com/questions/2404/upgradeable-contracts)
+
+#### Circuit Breakers (Pause contract functionality)
+
+Circuit breakers stop contract code from being executed if certain conditions are met, and can be useful when new errors are discovered. They sometimes come at the cost of injecting some level of trust, though smart design can minimize the trust required. Pausing can protect ether and many other items (e.g., votes).
+
+Example:
+
+```
+bool private paused = false;
+
+function public toggleContractActive()
+isAdmin() {
+    // You can add an additional modifier that restricts pausing a contract to be based on another action, such as a vote of users
+    paused = !paused;
+}
+
+modifier isAdmin() {
+  if(msg.sender != owner) {
+    throw;
+  }
+  _
+}
+
+modifier isActive() {
+  if(paused) {
+    throw;
+  }
+  _
+}
+
+function transfer()
+isActive() {
+  // some code
+}
+```
+
+#### Speed Bumps (Delaying contract results)
+
+Speed bumps slow down actions, so that if malicious actions occur, there is time to recover. For example, [The DAO](https://github.com/slockit/DAO/) required 28 days between a successful request to split the DAO and the ability to do so. This ensured the funds were kept within the contract, allowing a greater likelihood of recovery (other fundamental flaws made this functionality useless without a fork in Ethereum). Speed bumps can be combined with other techniques (like contract pausing).
+
+Example:
+
+```
+mapping (address => uint) balances;
+mapping (address => uint) requestedWithdrawals;
+
+struct RequestedWithdrawal {
+  uint amount;
+  uint time;
+}
+
+function requestWithdrawal() {
+  if (balances[msg.sender] > 0) {
+    uint amountToWithdraw = balances[msg.sender];
+    balances[msg.sender] = 0;
+
+    requestedWithdrawals[msg.sender] = RequestedWithdrawal({
+	amount: amountToWithdraw;
+	time: now
+      };
+  }
+}
+
+function withdraw() {
+  if(requestedWithdrawals[msg.sender] && requestedWithdrawals[msg.sender].amount> 0 &&
+    ) {
+
+    }
+}
+
+```
+
+#### Rate Limiting
+
+Malicious activity is often correlated with extreme movements (e.g., size of fund transfer, number of transfer requests). This risk can be reduced by limiting amount of activity allowed within a time period or by a certain address.
+
+Example:
+
+```
+
+```
+
+#### Whitelist Users
+
+Locking certain or all actions to a list of whitelisted users or contracts can prevent a malicious user from accessing your contract.
 
 #### Assert Guards
 
-Akin to watching for unknown activities, an assert guard performs like a circuit breaker, but instead focuses on scenarios where an attacker can force a set of tests to fail. This however, does mean that the tests have to be written in Solidity as well, and assumes that tests are bug free as well. If an assert failure is triggers, the developers are allowed back in to upgrade the code, and only in those scenarios.
+Assert failures allow developers to upgrade the code only if an assert failure is triggered. For example, if balances exceed the contract amount.
+
+#### Manage what is on Blockchain
+
+Blockchain programming is difficult because it has a level of permanence and data cost different than other forms of programming. In many cases, you may be able to put core functionality on the blockchain, while managing ancillary functionality off the blockchain. This allows you the benefits of trustless, decentralized systems - with the advantages of iteration off the blockchain.
+
+#### Automatic Wind Down
+
+If the contract is attacked and paused - you may want to provide a facility to wind down the contract, rather than fixing it. It's critical to have an orderly wind down process from the start and think through various cases, such as:
+
+- How should money be returned, if there is not enough to return all users' funds
+- [TODO]
 
 ## Future improvements
 
