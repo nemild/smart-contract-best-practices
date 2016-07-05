@@ -6,13 +6,14 @@
 
 #### Note for contributors
 
-This document is designed to provide a starting security baseline for intermediate Solidity programmers. It includes philosophies, code idioms, known attacks, and software engineering techniques for blockchain contract programming - and aims to cover all communities, techniques, and tools that improve smart contract security. At this stage, this document is focused primarily on Solidity, a javascript-like language for Ethereum, but other languages are welcome.
+This document is designed to provide a starting security baseline for intermediate Solidity programmers. It includes security philosophies, code idioms, known attacks, and software engineering techniques for blockchain contract programming - and aims to cover all communities, techniques, and tools that improve smart contract security. At this stage, this document is focused primarily on Solidity, a javascript-like language for Ethereum, but other languages are welcome.
 
 ##### Additional Requested Content
 
 We especially welcome content in the following areas:
 
 - Testing Solidity code (structure, frameworks, common test idioms)
+- Software engineering practices for smart contracts and/or blockchain-based programming
 
 ## General Philosophy
 
@@ -75,15 +76,19 @@ Additionally, this is a list of community members who may write about security:
 
 #### Avoid external calls, when possible
 
-Currently, external calls (including `.send`, which triggers the fallback function) can introduce several unexpected risks or errors. For calls to untrusted contracts, you may be executing malicious code in that contract _or_ any other contract that it depends upon. As such, it is strongly encouraged to minimize external calls. Over time, it is likely that a paradigm will develop that leads to safer external calls - but the risk currently is high.
+External calls (including `.send`, which triggers the fallback function) can introduce several unexpected risks or errors. For calls to untrusted contracts, you may be executing malicious code in that contract _or_ any other contract that it depends upon. As such, it is strongly encouraged to minimize external calls. Over time, it is likely that a paradigm will develop that leads to safer external calls - but the risk currently is high.
 
-If you must make an external call, ensure that external calls are the last call in a function - and that you've finalized your contract state.
+If you must make an external call, ensure that external calls are the last call in a function - and that you've finalized your contract state before the call is made. You should also remember to check the result of all external calls (`.send()` and other raw calls will provide a boolean value, while other external function calls will throw on failure).
 
 Source:
 
 #### Favor `.send()` over `.call()`, `.callcode()`, `.delegatecall()`
 
-`send` is usually safer, as it only has access to gas stipend of 2,300 gas, which is insufficient for the send recipient to trigger state changes (2,300 gas was chosen to allow the recipient to fire an event, but not much else). Raw calls do not have a cap in how much gas can be used, unless explicitly specified. If you do use a raw external call, the return value should be checked to see if it failed.
+`send` is usually safer, as it only has access to gas stipend of 2,300 gas, which is insufficient for the send recipient to trigger state changes (2,300 gas was chosen to allow the recipient to fire an event, but not much else). Raw calls do not have a cap in how much gas can be used, unless explicitly specified. If you do use a raw external call, the return value should be checked to see if it failed - and you should send an explicit amount of gas.
+
+```
+
+```
 
 Source:
 
@@ -94,20 +99,25 @@ Sends (and raw calls) can fail, so you should always test if it succeeded.
 ```
 // bad
 someAddress.send();
+someAddress.call.value(100000)();
 
 
 // good
-if (someAddress.send()) {
+if(!someAddress.send()) {
+
+}
+
+if(!someAddress.call.value(100000)()) {
 
 }
 ```
 
 Source: [Smart Contract Security](https://blog.ethereum.org/2016/06/10/smart-contract-security/)
 
-
+<a name='favor-pull-over-push'></a>
 #### Favor *pull* payments over *push* payments
 
-The call stack limit means that calls in your contract can fail, if it will be the 1025th call. Instead of sending a payment in an action, create a balance in that action that can be separately withdrawn using another action.
+The call stack limit of 1024 means that calls in your contract can fail, if it will be the 1025th call. To prevent sends failing, create a balance in an action that can be separately withdrawn using another action.
 
 In the future, with lower block times and having to interact across shards, asynchrony might become a more important pattern besides for security.
 
@@ -160,9 +170,9 @@ contract auction {
 
 Source: [Smart Contract Security](https://blog.ethereum.org/2016/06/10/smart-contract-security/)
 
-#### Remove arbitrary-length iterations
+#### Remove arbitrary-length iterations and handle failures in loop gracefully
 
-Blocks of code have an explicit gas limit, and so you should never allow loops that can have arbitrary lengths based on usage. These loops may never conclude, leading to broken contracts - or may allow an attacker to force you to use an excessive amount of gas for computation. Further, when loops call other contracts (like a `.send`), they can fail leading to the failure of the entire loop.
+Blocks of code have an explicit gas limit, and so you should never allow loops that can have arbitrary lengths based on usage. These loops may never conclude, leading to broken contracts - or may allow an attacker to force you to use an excessive amount of gas for computation. Further, when loops call other contracts (like a `.send`), they can fail leading to the failure of the entire loop - if failure is not handled correctly.
 
 ```
 address[] public refundAddresses;
@@ -211,6 +221,8 @@ uint x = (5 * multiplier) / 2;
 // in the near future, Solidity will have fixed point data types like fixed, ufixed
 ```
 
+Source:
+
 #### Name functions and events differently
 
 Favor capitalization and a *Log* prefix in front of events, to prevent the risk of confusion between functions and events (this was a mistake made in [The DAO](https://github.com/slockit/DAO/) ). For functions, always start with a lowercase letter.
@@ -220,8 +232,10 @@ Source: [Deconstructing the DAO Attack: A Brief Code Tour](http://vessenes.com/d
 ```
 // bad
 event transferHappened() {}
-event TransferHappened() {}
 function Transfer() {}
+
+// slightly better
+event TransferHappened() {}
 
 // good
 event LogTransferHappened() {}
@@ -250,8 +264,7 @@ function internalAction private () {
 
 }
 
-
-// note for state variables that external is not possible
+// for state variables, 'external' is not possible
 ```
 
 #### Keep fallback functions simple
@@ -272,11 +285,28 @@ function deposit() { balances[msg.sender] += msg.balance; }
 
 Mark which contracts are untrusted.  For example, some abstract contracts are implementable by 3rd parties. Use a prefix, or at minimum a comment, to highlight untrusted contracts.
 
+```
+// bad
+Bank.withdraw(100);
+
+// good
+ExternalBank.withdraw(100);
+```
+
 ## Known Attacks
 
-#### Call depth attack (or Call Stack Attack)
+1. [Call depth attack](#call-depth-attack)
+1. [Iterator Deadlocking](#iterator-deadlocking)
+1. [Iteration Maximum](#iteration-maximum)
+1. [Reentrant Attacks](#reentrant-attacks)
+1. [Timestamp Dependence](#timestamp-dependence)
+1. [Transaction-Ordering Dependence](#transaction-ordering-dependence)
+1. [Leech Attack](#leech-attack)
 
-Given the call stack limit of 1024, a malicious party can build up a chain of calls that forces subsequent calls within a contract to fail, even with sufficient gas.
+<a name="call-depth-attack"></a>
+#### Call depth attack
+
+Given the call stack limit of 1024, a malicious party can build up a chain of calls that forces subsequent calls within a contract to fail, even with sufficient gas. These subsequent calls can be functions within a contract and external contract calls (including `.send()`).
 
 
 Example:
@@ -294,6 +324,8 @@ function bid() {
 
 All raw external calls should be examined and handled carefully for errors.  In most cases, the return values should be checked and handled carefully.  We recommend explicit comments in the code when such a return value is deliberately not checked.
 
+<a name="iterator-deadlocking"></a>
+
 #### Iterator Deadlocking
 
 Loops that depend on external calls succeeding can fail due to a single malicious party.
@@ -302,7 +334,7 @@ Loops that depend on external calls succeeding can fail due to a single maliciou
 address[] refunds; // assume this array is populated
 
 for (uint x = 0; x < refunds.length; x++) {
-  if (refundAddresses[x].send(100)) { // any single address that overrides send can now prevent payments for the entire group
+  if (refundAddresses[x].send(100)) { // any single address that overrides send to return a failure can now prevent payments for the entire group
     throw;
   }
 }
@@ -310,17 +342,48 @@ for (uint x = 0; x < refunds.length; x++) {
 
 The recommended pattern is that each user should withdraw their refund themselves.
 
-### Reentrant Attacks
+<a name="iteration-maximum"></a>
 
-Allowing contracts to call other contracts is one of the amazing benefits of Ethereum. It allows for emergent behaviour to occur across code. It is a powerful tool to easily attach additional functionality to existing smart contract ecosystems, but could open up malicious attacks. One of these are reentrant attacks: allowing a contract that is called to reenter the contract.
+#### Iteration Maximum
 
-The more complicated issues with external calls (Contract OR raw calls) comes in when one does not know what the other contract might do when it is triggered. This can cause reentrant attacks, which can be separated into a recursive & unexpected state manipulation attack. These can be combined, which is what happened in the DAO hack.
+Manipulating the amount of elements in an array can increase gas costs substantially - or prevent the code from running if the block maximum is hit. For example, a malicious party can create many entities to break a iterative payout code.
 
-### Recursive Reentrant Attack
+One way to mitigate this is to transform push models to an individual pull model. See [favor pull over push](#favor-pull-over-push).
 
-This attack occurs when the state has not been properly set before the external call occurs in a function, and was a key attack on [The DAO](https://github.com/slockit/DAO). The attacker can reenter and call the function again, being to recursively call a piece of code, whilst it was expected that they could only do it once. They can only recursively call until the gas limit has been reached or before the call depth is reached.
+An alternative approach is to have a payout loop that can be split across multiple transactions, like so:
 
-This is particularly problematic in the case where it is not known that something like address.call.value()() to send ether, can trigger a fallback function. However, this is not just limited to a fallback function. It can happen with any external (Contract or raw).
+```
+struct Payee {
+  address addr;
+  uint256 value;
+}
+Payee payees[];
+uint256 nextPayeeIndex;
+
+function payOut() {
+  uint256 i = nextPayeeIndex;
+  while (i < payees.length && msg.gas > 200000) {
+    payees[i].addr.send(payees[i].value);
+    i++;
+  }
+  nextPayeeIndex = i;
+}
+```
+<a name="reentrant-attacks"></a>
+
+#### Reentrant Attacks
+
+A key benefit of Ethereum is the ability for one contract to call another. Additional functionality can then be easily attached to existing smart contract ecosystems - but this also can introduce risks. One of these is reentrant attacks: allowing a function to be called in a contract when another function in that contract is running.
+
+External calls (Contract OR raw calls) are particularly problematic when one does not know what the other contract might do when triggered. This can cause reentrant attacks, such as recursive & unexpected state manipulation attacks.
+
+(The DAO hack combined both these attacks)
+
+##### Recursive Reentrant Attack
+
+This attack occurs when the state has not been properly set before the external call occurs in a function. The attacker can reenter and call the function again, being to recursively call a piece of code, whilst it was expected that they could only do it once. They can only recursively call until the gas limit has been reached or before the call depth is reached.
+
+This is particularly problematic where it is not known that something like `address.call.value()()` to send ether, can trigger a fallback function. However, this is not just limited to a fallback function. It can happen with any external (Contract or raw).
 
 ```
 // Code from The DAO: https://github.com/slockit/DAO/blob/develop/ManagedAccount.sol
@@ -339,21 +402,23 @@ function payOut(address _recipient, uint _amount) returns (bool) {
 
 To protect against recursive reentry, the function needs to set the state such that if the function is called again in the same transaction, it wouldn’t continue to execute.
 
-### Unexpected State Manipulation Reentrant Attack
+##### Unexpected State Manipulation Reentrant Attack
 
-Unexpected state manipulation reentrant attack can occur when another function G in the contract shares the state of the current calling function F.
+This attack occurs when a function expects a certain state, but another contract function alters this state, while the original function is still running. A malicious party would often start the first function, and then calls the second function before the first function completes.
 
-An attacker starts off by calling function F. It has an external call in it, which the attacker then uses to call function G. Since F & G share state, calling G, can manipulate the behaviour in F. By the time F is finished, the attacker might have manipulated state by calling G without function F being aware of it.
+In [The DAO](https://github.com/slockit/DAO), when the splitting function was called, the token balances were zeroed out. However, before that was done, the attacker reentered and transfer out his/her balance to another address, letting the split function zero out an account that already had zero funds in it. This allowed the attacker to again call the splitting function in multiple transactions, as long as s/he kept transferring the tokens around before the final split.
 
-This is one of the attacks that was done on the DAO. When splitting function was called, right at the end (after the external call), the token balances were zeroed out. However, before that was done, the attacker reentered and transfer out his balance to another address, basically then letting the split function zero out an account that already has zero funds in it. This allowed the attacker to again call the splitting function in multiple transactions, as long as he kept transferring the tokens around before the final split.
-
-((code snippet))
-
-To protect against this, ensure that any state changes happen BEFORE the attacker can come in and manipulate the state.
-
+```
+TODO: Add snippet
+```
 If there are more than 2 functions that share state, an attacker can cause substantial damage. Functions that do not share any state, are safe from this attack (even if state changes happen after the external call). It is not generally a safe pattern, so it is still recommended to do state changes before doing any external calls even if no functions share states in your contract.
 
-A non-example? ((insert here))
+To mitigate this attack, you should:
+
+- Always check the result of a contract call, even when using `send()` (don't ever assume things went well)
+- Only make external calls at the end of functions
+
+Otherwise, you MUST ensure that functions do not share state:
 
 ```
 contract ReentrantSafe {
@@ -365,62 +430,38 @@ contract ReentrantSafe {
 }
 ```
 
-In general, to protect against reentry attacks:
-
-External calls (of any sort) should be made at the end of function calls. If it can’t be done, extreme care needs to be taken to make sure that the functions do not share state that can be manipulated by the attacker before proceeding onwards.
-In general, for both reentry attacks, the easiest fix is to make sure that you only do external calls as the last action in a function.
-
-If one has an expectation of what type of computations will be done in an external call, to limit the gas appropriately (and not forwarding all the gas by default). This however limits the potential for any emergent useful use cases, so use wisely.
-
-To summarise the protection against external call attacks:
-
-- Always make sure to check the result of the call, even when using send(), or even Contract calls. Under no assumption should it be expected that everything went exactly as planned.
-- Move external calls to the end of functions.
-If this can’t be done, make extremely sure that state manipulation across functions won’t be possible.
-
-#### Iteration Attack
-
-Manipulating the amount of elements in an array can increase gas costs substantially - or prevent the code from running if the block maximum is hit. Taking the previous example, of wanting to pay out some stakeholders iteratively, it might seem fine, assuming that the amount of stakeholders won’t inflate too much. The attacker would buy up, say 10000 tokens, and then split all 10000 tokens amongst 10000 addresses, causing the amount of iterations to increase, potentially forcing a lock.
-
-To mitigate around this, a pull vs push model comes in handy. For example:
+Alternatively, you can use a mutex (often used in concurrent programming) where you lock certain variables:
 
 ```
-```
-
-An alternative approach is to have a payout loop that can be split across multiple transactions, like so:
 
 ```
-struct Payee {
-	address addr;
-	uint256 value;
-}
-Payee payees[];
-uint256 nextPayeeIndex;
 
-function payOut() {
-	uint256 i = nextPayeeIndex;
-	while (i < payees.length && msg.gas > 200000) {
-		payees[i].addr.send(payees[i].value);
-		i++;
-	}
-	nextPayeeIndex = i;
-}
-```
+Mutexes have their own disadvantages with the potential for deadlocks and reduced throughput - so choose the approach that works best for your use case and text extensively.
+
+<a name="timestamp-dependence"></a>
 
 #### Timestamp Dependence Bug
 
-In Solidity, one has access to the timestamp of the block. If it is used as an important part of the contract, the developer needs to know that it can be manipulated by the miner.
+The timestamp of the block can be manipulated by the miner - and should not be used for important parts of the code.
 
 A way around this could be to use block numbers and estimate time that has passed based on the average block time. However, this is NOT future proof as block times might change in the future (such as the current planned 4 second block times in Casper). So, consider this when using block numbers as as timekeeping mechanism (how long your code will be around).
 
+<a name="transaction-ordering-dependence"></a>
+
 #### Transaction-Ordering Dependence (TOD)
+(also known as frontrunning)
 
-Since a transaction is in the mempool for a short while, one can know what actions will occur, before it is properly recorded (included in a block). This can be troublesome for things like decentralized markets, where a transaction to buy some tokens can be seen, and a market order implemented before the other transaction gets included. Protecting against is difficult, as it would come down to the specific contract itself. For example, in markets, it would be better to implement batch auctions (this also protects against high frequency trading concerns). Another potential way to use a pre-commit scheme (“I’m going to submit the details later”).
+Since a transaction is in the mempool for a short while, one can know what actions will occur, before it is recorded (included in a block).
 
+This can be troublesome for things like decentralized markets, where a transaction to buy some tokens can be seen, and a market order implemented before the other transaction gets included. Protecting against is difficult, as it would come down to the specific contract itself. For example, in markets, it would be better to implement batch auctions (this also protects against high frequency trading concerns). Another potential way to use a pre-commit scheme (“I’m going to submit the details later”).
+
+<a name="leech-attack"></a>
 
 #### Leech attack
 
-If your contract is an oracle, it may want protection from leeches that will use your contract’s data for free. If not encrypted, the data would always be readable, but one can restrict the usage of this information in other smart contracts.
+**TODO: Is this an 'attack'?**
+
+If your contract is an oracle, it may want protection from leeches that will use your contract’s data for free. If not encrypted, the data would always be readable, but one can restrict the usage of this information in other smart contracts.T
 
 Part of the solution is to carefully review the visibilities of all function and state variable.
 
@@ -447,7 +488,7 @@ At minimum, you should:
 
 ##### Automatic Deprecation
 
-During testing, you can force an automatic deprecation by preventing any actions after a certain time period. For example, a beta contract may work for several weeks and then automatically shut down all actions, except for the final withdrawal.
+During testing, you can force an automatic deprecation by preventing any actions after a certain time period. For example, an alpha contract may work for several weeks and then automatically shut down all actions, except for the final withdrawal.
 
 ```
 modifier isActive() {
@@ -630,7 +671,7 @@ Blockchain programming is difficult because it has a level of permanence and dat
 If the contract is attacked and paused - you may want to provide a facility to wind down the contract, rather than fixing it. It's critical to have an orderly wind down process from the start and think through various cases, such as:
 
 - How should money be returned, if there is not enough to return all users' funds
-- [TODO]
+- Who will be able to start the wind down process
 
 ## Security-related Documentation and Procedures
 
@@ -658,8 +699,8 @@ When launching a contract that will have substantial funds or is required to be 
 
 - Notification process if bug is discovered
 - Wind down process if something goes wrong (e.g., funders will get percentage of your balance before attack, from remaining funds)
-- Hacker bounty* provided for discovered bugs, responsible disclosure policy, where to report, etc
-- What recourse there will be in case of failure
+- If hacker bounty*provided for discovered bugs, responsible disclosure policy, where to report, etc
+- Recourse in case of failure (e.g., insurance, penalty fund, no recourse)
 
 **Contact Information**
 
