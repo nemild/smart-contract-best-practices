@@ -229,67 +229,24 @@ Bank.withdraw(100); // external but trusted bank contract maintained by XYZ Corp
 
 ### Call depth attack
 
-(it is sometimes also referred as the call stack attack)
+(also known as *call stack attack*)
 
-Even if it is known that the likelihood of failure in a sub-execution is possible, this can be forced to happen through a call depth attack. There’s a limit to how deep the call stack can become in one transaction (limit of 1024). Thus an attacker can build up a chain of calls and then call a contract, forcing subsequent calls to fail even if enough gas is available. It has to be a call, within a call, within a call, etc.
+A malicious party can build up a chain of of 1024 calls (the call stack limit) that forces subsequent calls within a contract to fail, even with sufficient gas. These subsequent calls can be functions within a contract and external contract calls (including `.send()`).
 
-For example, looking at the auction code from previously:
+Example:
 
 ```
-// DO NOT USE. THIS IS VULNERABLE.
-contract auction {
-    address highestBidder;
-    uint highestBid;
-    mapping(address => uint) refunds;
+function bid() {
+    if (msg.value > highestBid) {
+        address previousBidder = msg.sender;
+        highestBidder = msg.sender;
+        highestBid = msg.Value;
 
-    function bid() {
-	if (msg.value < highestBid) throw;
-	if (highestBidder != 0)
-	    refunds[highestBidder] += highestBid;
-	highestBidder = msg.sender;
-	highestBid = msg.value;
-    }
-
-    function withdrawRefund() {
-	uint refund = refunds[msg.sender];
-	refunds[msg.sender] = 0;
-	msg.sender.send(refund); // vulnerable line.
-	refunds[msg.sender] = refund;
-    }
+        previousBidder.send(); // this send will fail, meaning the ether is retained within the contract, even though the bidder changed
 }
 ```
 
-The send() can fail if the call depth is too large, causing ether to not be sent. However it would be marked as if it did send. As previously shown, the external call should be checked for errors. This example, the state would just revert to the previous state.
-
-```
-contract auction {
-    address highestBidder;
-    uint highestBid;
-    mapping(address => uint) refunds;
-
-    function bid() {
-      if (msg.value < highestBid) throw;
-      if (highestBidder != 0)
-	  refunds[highestBidder] += highestBid;
-
-      highestBidder = msg.sender;
-      highestBid = msg.value;
-    }
-
-    function withdrawRefund() {
-	uint refund = refunds[msg.sender];
-	refunds[msg.sender] = 0;
-	if (!msg.sender.send(refund))
-	   refunds[msg.sender] = refund;
-    }
-}
-```
-
-Thus:
-
-All raw external calls should be examined and handled carefully for errors.  In most cases, the return values should be checked and handled carefully.  We recommend explicit comments in the code when such a return value is deliberately not checked.
-
-As you can see, the call depth attack can be a malicious attack on a contract for the purpose of failing a subsequent call. Thus even if you know what code will be executed, it could still be forced to fail.
+All calls should be examined and handled carefully for errors - namely, by checking return values. We recommend explicit comments in the code when such a return value is deliberately not checked.
 
 ### Reentrant Attacks
 
