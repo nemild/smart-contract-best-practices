@@ -374,11 +374,9 @@ function payOut() {
 }
 ```
 
-### Timestamp Dependence Bug
+### Timestamp Dependence
 
-In Solidity, one has access to the timestamp of the block. If it is used as an important part of the contract, the developer needs to know that it can be manipulated by the miner.
-
-((code snippet))
+The timestamp of the block can be manipulated by the miner - and should not be used for important parts of the code.
 
 A way around this could be to use block numbers and estimate time that has passed based on the average block time. However, this is NOT future proof as block times might change in the future (such as the current planned 4 second block times in Casper). So, consider this when using block numbers as as timekeeping mechanism (how long your code will be around).
 
