@@ -347,7 +347,7 @@ To summarise the protection against external call attacks:
 - Move external calls to the end of functions.
 If this can’t be done, make extremely sure that state manipulation across functions won’t be possible.
 
-<a name="iterator-deadlocking"></a>
+<a name="iterator-abort"></a>
 
 #### Iterator Abort
 
