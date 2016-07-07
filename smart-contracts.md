@@ -89,6 +89,29 @@ There is a slight difference in Solidity as to what happens with Contract calls 
 
 The most important point is the same for both, whether using ExternalContract.doSomething() or address.call(), if ExternalContract is untrusted, assume that malicious code will execute.  Note that if you trust an ExternalContract, you also trust any external contracts it calls, and that those call, are all non-malicious.  If any malicious contract exists in the call chain, the malicious contract can attack you (next section on Reentrant Attacks).
 
+### Favor `.send()` over raw calls
+
+`send` is usually safer compared to raw calls like `.call()`, `.callcode()`, and `.delegatecall()`, as it only has access to gas stipend of 2,300 gas, which is insufficient for the send recipient to trigger state changes (2,300 gas was chosen to allow the recipient to fire an event, but not much else). Raw calls do not have a cap on how much gas can be used, unless explicitly specified.
+
+If you do use a raw external call, the return value should be checked to see if it failed - and you should send an explicit amount of gas.
+
+```
+// bad
+if (someAddress.call.value()()) {
+    // failure case
+}
+
+// ok
+if (someAddress.call.value(3000)()) {
+    // failure case
+}
+
+// good
+if (someAddress.send()) {
+    // failure case
+}
+```
+
 ### Always test if `.send` and other raw calls have succeeded
 
 Sends and raw external calls can fail (e.g., when the call stack depth of 1024 is breached), so you should always test if it succeeded. If you don't test the result, it's recommended to note in a comment.
