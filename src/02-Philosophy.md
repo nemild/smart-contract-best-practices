@@ -5,7 +5,7 @@ Ethereum and complex blockchain programs are new and therefore you should expect
 
 As a result, beyond protecting yourself against currently known hacks, it's critical to follow a different philosophy of development:
 
-- **Practice defense in depth**. You shoudl design contracts to gracefully manage (potentially inevitable) failure, using multiple layers of security controls. Many of these failure conditions are unknown and often unknowable in a new ecosystem like Ethereum - and so require more than simply managing for all currently known bugs, antipatterns, or malicious inputs. As such, you may need to:
+- **Practice defense in depth**. You should design contracts to gracefully manage (potentially inevitable) failure, using multiple layers of security controls. Many of these failure conditions are unknown and often unknowable in a new ecosystem like Ethereum - and so require more than simply managing for all currently known bugs, antipatterns, or malicious inputs. As such, you may need to:
   - pause the contract ('circuit breaker')
   - restrict the amount of money at risk (rate limiting, maximum usage)
   - fix and iterate on the code when errors are discovered
