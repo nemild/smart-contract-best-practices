@@ -1,7 +1,7 @@
 
 ## Software Engineering Techniques
 
-Designing your contract for unknown, often unknowable, failure scenarios is a key aspect of defensive programming, which aims to reduce the risk from newly discovered bugs. We list potential techniques you can use to mitigate various unknown failure scenarios - and many of these can be used together.
+Designing your contract with multiple failsafes for unknown, often unknowable, failure scenarios is a key aspect of [defense in depth](https://en.wikipedia.org/wiki/Defense_in_depth_(computing)), which aims to reduce the risk from known and unknown security vulnerabilities. We list potential techniques you can use to mitigate various unknown failure scenarios - and many of these can be used together.
 
 Be thoughtful about what techniques you incorporate, as certain techniques require more Solidity code, leading to a greater risk of bugs.
 

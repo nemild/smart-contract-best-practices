@@ -5,11 +5,12 @@ Ethereum and complex blockchain programs are new and therefore you should expect
 
 As a result, beyond protecting yourself against currently known hacks, it's critical to follow a different philosophy of development:
 
-- **Practice defensive programming**; any non-trivial contract will have errors in it. This means that you likely need to build contracts where you can:
+- **Practice defense in depth**. You shoudl design contracts to gracefully manage (potentially inevitable) failure, using multiple layers of security controls. Many of these failure conditions are unknown and often unknowable in a new ecosystem like Ethereum - and so require more than simply managing for all currently known bugs, antipatterns, or malicious inputs. As such, you may need to:
   - pause the contract ('circuit breaker')
-  - manage the amount of money at risk (rate limiting, maximum usage)
+  - restrict the amount of money at risk (rate limiting, maximum usage)
   - fix and iterate on the code when errors are discovered
   - provide superuser power to a party or many parties for contract administration
+  - *(these are some illustrative examples, and multiple techniques should be layered)*
 
 - **Conduct a thoughtful and carefully staged rollout**
   - Test contracts thoroughly, adding in all newly discovered failure cases
@@ -26,3 +27,6 @@ As a result, beyond protecting yourself against currently known hacks, it's crit
 - **Be careful about calling external contracts** (especially, at this stage)
   - look at the dependencies of external contracts
   - remember that many levels of dependencies are particularly problematic
+
+
+<sup>\*</sup>[Defense in depth](https://en.wikipedia.org/wiki/Defense_in_depth_(computing)) uses *multiple layers* of controls to provide redundancy in the event that security controls fail. It can be extended beyond code to the personnel, procedural, and physical aspects of security (e.g., the human-based voting mechanism used to replace a piece of code).
